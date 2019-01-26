@@ -1,14 +1,14 @@
 {
   "package_name": "tokens",
-  "version": "1.0.0",
-  "description": "Ethereum Token Contracts",
+  "version": "0.0.1",
+  "description": "Foxel Token Contracts",
   "authors": [
-    "Simon de la Rouviere <simon.delarouviere@consensys.net>",
-    "Joseph Chow <joseph.chow@consensys.net>"
+    "Travis Wilson <travis@foxel.ai>"
   ],
   "keywords": [
     "tokens",
-    "consensys"
+    "consensys",
+    "foxel"
   ],
   "license": "MIT"
 }
