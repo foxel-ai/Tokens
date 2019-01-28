@@ -2,15 +2,20 @@
 const messageBuild = require('../build/contracts/EIP20.json');
 const contract = require('truffle-contract');
 const EIP20 = contract(messageBuild);
-
+// ==============================
+// TEST TRANSFER
+// ==============================
 module.exports = (callback) => {
   EIP20.setProvider(web3.currentProvider);
 
-  var creator = web3.eth.accounts[0];
-  var purchaser = web3.eth.accounts[1];
+  var creator = web3.eth.accounts[1];
+  var purchaser = web3.eth.accounts[2];
 
   web3.eth.defaultAccount = creator;
   // web3.personal.unlockAccount(creator);
+
+  // creator = purchaser
+  // purchaser = purchaser_1
 
   EIP20.defaults({
     from: creator,
@@ -24,7 +29,6 @@ module.exports = (callback) => {
       return contract = inst;
     })
     .then(() => {
-      console.log('Balance of Main:', creator);
       return contract.balanceOf(creator);
     })
     .then((msg) => {
