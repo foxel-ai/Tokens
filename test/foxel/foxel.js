@@ -1,13 +1,14 @@
 const { assertRevert } = require('../helpers/assertRevert');
+
 const FOXEL = artifacts.require('foxel');
+const web3 = require('web3');
+
 let FXL;
 const price = 1e+16;
 contract('Foxel', (accounts) => {
-  beforeEach(async () => {
-    FXL = await FOXEL.new('Foxel', 'FXL', price, { from: accounts[0] });
-  });
-
   it('creation: test correct settings of contract', async () => {
+    FXL = await FOXEL.new('Foxel', 'FXL', price, { from: accounts[0] });
+
     const name = await FXL.name.call();
     assert.strictEqual(name, 'Foxel', 'Name was wrong');
 
@@ -27,64 +28,85 @@ contract('Foxel', (accounts) => {
     assert.strictEqual(reserveThreshold.toNumber(), 10, 'Reserve Threshold was wrong');
   });
 
-  it('buy: verify that exact amount of foxel is created for the provided eth', async () => {
-    const address = accounts[0];
-    const eth = 1e+18;
-    // console.log('HELLOOOO: ', await FXL.balanceOfSC.call())
-    const buy = await FXL.buy.sendTransaction({ value: eth, from: address });
+  it('buy: verify that buying and selling is only determined by price', async () => {
+    const address = accounts[1];
+    const ethAmount = 1e18; // web3.utils.toWei('1', 'Ether')
+    const balanceBefore = await FXL.balanceOfSC.call();
+    console.log('THIS IS THE BALANCE', balanceBefore.toNumber());
+    assert.strictEqual(balanceBefore.toNumber(), 0, 'Contract started with more than 0 eth');
+    const buy = await FXL.buy.sendTransaction({ value: ethAmount, from: address });
     assert(buy != null, 'Issue buying token');
-    // console.log('Buy: ', buy)
 
-    const expectedAmount = eth / price;
-    const totalSupply = await FXL.totalSupply.call();
-    assert.strictEqual(totalSupply.toNumber(), expectedAmount, 'Total Supply was wrong');
+    const expectedAmount = ethAmount / price;
+    const totalSupplyAfterBuy = await FXL.totalSupply.call();
+    assert.strictEqual(totalSupplyAfterBuy.toNumber(), expectedAmount, 'Total Supply was wrong');
+
+    const balanceOfAccountAfterBuy = await FXL.balanceOf.call(address);
+    assert.strictEqual(balanceOfAccountAfterBuy.toNumber(), expectedAmount, 'Expected Amount was wrong');
+    const balanceAfterBuy = await FXL.balanceOfSC.call();
+    assert.strictEqual(balanceAfterBuy.toNumber(), ethAmount, 'Contract did not have the right amount of eth in its wallet..');
+
+    const sell = await FXL.sell.sendTransaction(expectedAmount, { from: address });
+    assert(sell != null, 'Issue buying token');
+
+    const totalSupplyAfterSell = await FXL.totalSupply.call();
+    assert.strictEqual(totalSupplyAfterSell.toNumber(), 0, 'Total After Sell Supply was wrong');
 
     const balanceOf = await FXL.balanceOf.call(address);
-    assert.strictEqual(balanceOf.toNumber(), expectedAmount, 'Expected Amount was wrong');
-
+    assert.strictEqual(balanceOf.toNumber(), 0, 'Expected After Sell Amount was wrong');
+    const balanceAfterSell = await FXL.balanceOfSC.call();
+    assert.strictEqual(balanceAfterSell.toNumber(), 0, 'Contract still had eth leftover after sell.');
   });
-//   //
-//   // // TRANSERS
-//   // // normal transfers without approvals
-//   // it('transfers: ether transfer should be reversed.', async () => {
-//   //   const balanceBefore = await FXL.balanceOf.call(accounts[0]);
-//   //   assert.strictEqual(balanceBefore.toNumber(), 10000);
-//   //
-//   //   await assertRevert(new Promise((resolve, reject) => {
-//   //     web3.eth.sendTransaction({ from: accounts[0], to: FXL.address, value: web3.toWei('10', 'Ether') }, (err, res) => {
-//   //       if (err) { reject(err); }
-//   //       resolve(res);
-//   //     });
-//   //   }));
-//   //
-//   //   const balanceAfter = await FXL.balanceOf.call(accounts[0]);
-//   //   assert.strictEqual(balanceAfter.toNumber(), 10000);
-//   // });
-//   //
-//   // it('transfers: should transfer 10000 to accounts[1] with accounts[0] having 10000', async () => {
-//   //   await FXL.transfer(accounts[1], 10000, { from: accounts[0] });
-//   //   const balance = await FXL.balanceOf.call(accounts[1]);
-//   //   assert.strictEqual(balance.toNumber(), 10000);
-//   // });
-//   //
-//   // it('transfers: should fail when trying to transfer 10001 to accounts[1] with accounts[0] having 10000', async () => {
-//   //   await assertRevert(FXL.transfer.call(accounts[1], 10001, { from: accounts[0] }));
-//   // });
-//   //
-//   // it('transfers: should handle zero-transfers normally', async () => {
-//   //   assert(await FXL.transfer.call(accounts[1], 0, { from: accounts[0] }), 'zero-transfer has failed');
-//   // });
-//   //
-//   // // NOTE: testing uint256 wrapping is impossible since you can't supply > 2^256 -1
-//   // // todo: transfer max amounts
-//   //
-//   // // APPROVALS
-//   // it('approvals: msg.sender should approve 100 to accounts[1]', async () => {
-//   //   await FXL.approve(accounts[1], 100, { from: accounts[0] });
-//   //   const allowance = await FXL.allowance.call(accounts[0], accounts[1]);
-//   //   assert.strictEqual(allowance.toNumber(), 100);
-//   // });
-//   //
+
+  // TRANSERS
+  // normal transfers without approvals
+  it('transfers: ether transfer should be reversed.', async () => {
+    const balanceBefore = await FXL.balanceOf.call(accounts[0]);
+    assert.strictEqual(balanceBefore.toNumber(), 0);
+
+    await assertRevert(new Promise((resolve, reject) => {
+      FXL.sendTransaction({ from: accounts[1], to: FXL.address, value: 1e18 }, (err, res) => {
+        if (err) { reject(err); }
+        resolve(res);
+      });
+    }));
+
+    const balanceAfter = await FXL.balanceOf.call(accounts[0]);
+    assert.strictEqual(balanceAfter.toNumber(), 0);
+  });
+
+  it('transfers: should transfer when amount transfer is less than balance of sender', async () => {
+    const ethAmount = 1e18; // web3.utils.toWei('1', 'Ether')
+    await FXL.buy.sendTransaction({ value: ethAmount, from: accounts[0] });
+    const expectedAmount = ethAmount / price;
+
+    await FXL.transfer(accounts[1], expectedAmount, { from: accounts[0] });
+    const balance = await FXL.balanceOf.call(accounts[1]);
+    assert.strictEqual(balance.toNumber(), expectedAmount);
+  });
+
+  it('transfers: should fail when trying to transfer more tokens than in balance', async () => {
+    const ethAmount = 1e18; // web3.utils.toWei('1', 'Ether')
+    await FXL.buy.sendTransaction({ value: ethAmount, from: accounts[0] });
+    const amount = (ethAmount / price) + 1;
+
+    await assertRevert(FXL.transfer.call(accounts[1], amount, { from: accounts[0] }));
+  });
+
+  it('transfers: should handle zero-transfers normally', async () => {
+    assert(await FXL.transfer.call(accounts[1], 0, { from: accounts[0] }), 'zero-transfer has failed');
+  });
+
+  // NOTE: testing uint256 wrapping is impossible since you can't supply > 2^256 -1
+  // todo: transfer max amounts
+
+  // APPROVALS
+  it('approvals: msg.sender should approve 100 to accounts[1]', async () => {
+    await FXL.approve(accounts[1], 100, { from: accounts[0] });
+    const allowance = await FXL.allowance.call(accounts[0], accounts[1]);
+    assert.strictEqual(allowance.toNumber(), 100);
+  });
+
 //   // // bit overkill. But is for testing a bug
 //   // it('approvals: msg.sender approves accounts[1] of 100 & withdraws 20 once.', async () => {
 //   //   const balance0 = await FXL.balanceOf.call(accounts[0]);
