@@ -63,7 +63,6 @@ contract('Foxel', (accounts) => {
     const sell = await FXL.withdraw.sendTransaction(amount, { from: cbWalletAddress });
     assert(sell != null, 'Issue selling token');
     const afterAmount = await FXL.balanceOfSC.call();
-    console.log('Before: ', beforeAmount, ' After: ', afterAmount, ' Amount: ', amount);
     assert((beforeAmount - amount), afterAmount, 'Available amount left is incorrect');
   });
   it('reserve: test can sell if sender does have correct amount of funds', async () => {
@@ -87,7 +86,6 @@ contract('Foxel', (accounts) => {
     assert.strictEqual(priceFromContract.toNumber(), price, 'Price was wrong');
 
     const totalSupply = await FXL.totalSupply.call();
-    console.log('Total supply: ', totalSupply.toNumber());
     assert.strictEqual(totalSupply.toNumber(), 100, 'Total Supply was wrong');
 
     const reserveAmountExpected = 1e+17; // 10% of ether
