@@ -7,14 +7,13 @@ pragma solidity ^0.4.21;
 
 import "../eip20/EIP20Interface.sol";
 import "../SafeMath.sol";
-import "../eip20/Owned.sol";
 
 
-contract Foxel is EIP20Interface, Owned {
+contract Foxel is EIP20Interface {
     using SafeMath for uint;
     uint256 constant private MAX_UINT256 = 2 ** 256 - 1;
     mapping(address => uint256) public balances;
-    mapping(address => uint256) public allowedToPurchase;
+    mapping(address => bool) public allowedToPurchase;
     mapping(address => mapping(address => uint256)) public allowedToTransfer;
 
     string  public name;                   // Foxel
@@ -24,6 +23,7 @@ contract Foxel is EIP20Interface, Owned {
     uint256 public price;
     uint256 public reserveThreshold;
     address private owner;
+    address private newOwner;
     address private trade;
 
     event Buy(address _to, uint amount);
@@ -42,69 +42,75 @@ contract Foxel is EIP20Interface, Owned {
         reserveAmount = 0;
         reserveThreshold = 10;     //This is supposed to be a percentage of totalSupply
         owner = msg.sender;
+        allowedToPurchase[owner] = true;
         trade = _trade;
     }
 
-    // fallback function that allows contract to accept ETH
-    function () onlyOwner payable {
-        //TODO What do we want to do here? We can error, accept, revert, accept and give the sender foxel?
-    }
-
-    modifier canBuy(address buyer, uint amount) {
-        require(amount > 0);
+    modifier onlyOwner() {
+        require(msg.sender == owner);
         _;
     }
 
-    modifier canSell(address seller, uint amount) {
-        require(amount > 0);
-        balanceOfSC() >= reserveAmount;
-        balanceOf(seller) > amount;
+    modifier canBuy() {
+        //TODO TW msg.sender, check for registration
+        require(msg.value > 0);
+        require(allowedToPurchase[msg.sender] == true);
         _;
     }
 
-    modifier canWithdraw(address seller, uint amount) {
+    modifier canSell(uint256 amount) {
         require(amount > 0);
-        balanceOfSC() >= reserveAmount;
+        require(balanceOfSC() >= reserveAmount);
+        require(balanceOf(msg.sender) >= amount);
+        _;
+    }
+
+    modifier canWithdraw(address seller, uint256 amount) {
+        require(amount > 0);
+        require(msg.sender == trade);
+        require(address(this).balance >= reserveAmount);
         _;
     }
 
     function buy()
-        public
-        canBuy(msg.sender, msg.value)
-        payable
-        returns (bool success) {
-            // Adding 10% of wei sent to our reserve amount.
-            // The reserve amount is the lowest amount we can withdraw for trading.
-            // If we have more funds in the contract than need we only add 10% of funds to the reserve
-            if (balanceOfSC() >= reserveAmount){
-                reserveAmount += msg.value.mul(100).div(reserveThreshold).div(100);
-            // Otherwise we'll add the whole amount transferred
-            } else {
-                reserveAmount += msg.value;
-            }
+    canBuy()
+    public payable returns (bool success) {
+        // Adding 10% of wei sent to our reserve amount.
+        // The reserve amount is the lowest amount we can withdraw for trading.
+        // If we have more funds in the contract than need we only add 10% of funds to the reserve
+        if (balanceOfSC() >= reserveAmount){
+            reserveAmount += msg.value.mul(100).div(reserveThreshold).div(100);
+        // Otherwise we'll add the whole amount transferred
+        } else {
+            reserveAmount += msg.value;
+        }
 
-            uint amount = msg.value.div(price);
-            balances[msg.sender] += amount;
-            totalSupply += amount;
-            emit Buy(msg.sender, amount);
-            return true;
-    }
-
-    function sell(uint256 amount)
-    public
-    canSell(msg.sender, amount)
-    returns (bool success) {
-        balances[msg.sender] -= amount;
-        totalSupply -= amount;
-        emit Sell(msg.sender, amount);
-        uint256 eth_to_send_back = amount.mul(price);
-        // Removing entire amount of transaction from reserve to verify the current funds in reserve
-        reserveAmount -= eth_to_send_back;
-        msg.sender.transfer(eth_to_send_back);
+        uint amount = msg.value.div(price);
+        balances[msg.sender] += amount;
+        totalSupply += amount;
+        emit Buy(msg.sender, amount);
         return true;
     }
 
-    function transfer(address _to, uint256 _value) public returns (bool success) {
+    function sell(uint256 amount)
+    canSell(amount)
+    public returns (bool success) {
+        balances[msg.sender] -= amount;
+        totalSupply -= amount;
+        uint256 eth_to_send_back = amount.mul(price);
+        // Removing entire amount of transaction from reserve to verify the current funds in reserve
+        if ( reserveAmount - eth_to_send_back >= 0) {
+            reserveAmount -= eth_to_send_back;
+        } else {
+            reserveAmount = 0;
+        }
+        msg.sender.transfer(eth_to_send_back);
+        emit Sell(msg.sender, amount);
+        return true;
+    }
+
+    function transfer(address _to, uint256 _value)
+    public returns (bool success) {
         require(balances[msg.sender] >= _value);
         balances[msg.sender] -= _value;
         balances[_to] += _value;
@@ -112,7 +118,8 @@ contract Foxel is EIP20Interface, Owned {
         return true;
     }
 
-    function transferFrom(address _from, address _to, uint256 _value) public returns (bool success) {
+    function transferFrom(address _from, address _to, uint256 _value)
+    public returns (bool success) {
         uint256 allowance = allowedToTransfer[_from][msg.sender];
         require(balances[_from] >= _value && allowance >= _value);
         balances[_to] += _value;
@@ -124,47 +131,90 @@ contract Foxel is EIP20Interface, Owned {
         return true;
     }
 
-    function balanceOf(address _owner) public view returns (uint256 balance) {
+    function balanceOf(address _owner)
+    public view returns (uint256 balance) {
         return balances[_owner];
     }
 
-    function approve(address _spender, uint256 _value) public returns (bool success) {
+    function approve(address _spender, uint256 _value)
+    public returns (bool success) {
         allowedToTransfer[msg.sender][_spender] = _value;
         emit Approval(msg.sender, _spender, _value); //solhint-disable-line indent, no-unused-vars
         return true;
     }
 
-    function allowance(address _owner, address _spender) public view returns (uint256 remaining) {
+    function allowance(address _owner, address _spender)
+    public view returns (uint256 remaining) {
         return allowedToTransfer[_owner][_spender];
     }
 
     // TODO TW can't remember what this is for...
-    function recoverLost(EIP20Interface token, address loser) public onlyOwner {
+    function recoverLost(EIP20Interface token, address loser)
+    public onlyOwner {
         token.transfer(loser, token.balanceOf(this));
     }
 
     // Admin Functions
-    function balanceOfReserve() public view returns (uint256 balance) {
-        return address(this).balance;
+    function balanceOfReserve()
+    public view returns (uint256 balance) {
+        return reserveAmount;
     }
 
     // Admin Functions
-    function balanceOfSC() onlyOwner public view returns (uint256 balance) {
+    function addBuyer(address buyer)
+    onlyOwner
+    public returns (bool wasAdded){
+        allowedToPurchase[buyer] = true;
+    }
+
+    // Admin Functions
+    function removeBuyer(address buyer)
+    onlyOwner
+    public returns (bool wasAdded){
+        allowedToPurchase[buyer] = false;
+    }
+
+    function balanceOfSC()
+    onlyOwner
+    public view returns (uint256 balance) {
         return address(this).balance;
     }
 
-    function availableForWithdraw() onlyOwner public view returns (uint256 balance) {
+    function availableForWithdraw()
+    onlyOwner
+    public view returns (uint256 balance) {
         return balanceOfSC() - reserveAmount;
     }
 
-    function setTrade(address _trade) onlyOwner public view returns (uint256 balance) {
+    function setTrade(address _trade)
+    onlyOwner
+    public {
         trade = _trade;
     }
 
-    function withdraw() onlyOwner canWithdraw public view returns (uint256 balance) {
-        return balanceOfSC() - reserveAmount;
+    function withdraw(uint256 amount)
+    canWithdraw (msg.sender, amount)
+    public {
+        trade.transfer(amount);
     }
 
+    function changeOwner(address _newOwner)
+    onlyOwner
+    public {
+        newOwner = _newOwner;
+    }
 
+    function acceptOwnership()
+    public {
+        if (msg.sender == newOwner) {
+            owner = newOwner;
+            newOwner = 0x0000000000000000000000000000000000000000;
+        }
+    }
+
+    // fallback function that allows contract to accept ETH
+    function () onlyOwner public payable {
+        //TODO What do we want to do here? We can error, accept, revert, accept and give the sender foxel?
+    }
 
 }
