@@ -223,6 +223,7 @@ contract Foxel is EIP20Interface {
     onlyOwner
     public returns (bool wasAdded){
         allowedToPurchase[buyer] = true;
+        return true;
     }
 
     /*
@@ -232,6 +233,7 @@ contract Foxel is EIP20Interface {
     onlyOwner
     public returns (bool wasAdded){
         allowedToPurchase[buyer] = false;
+        return true;
     }
 
     /*
